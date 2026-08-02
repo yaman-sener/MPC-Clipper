@@ -7,6 +7,7 @@ import os
 import threading
 import tempfile
 import shutil
+import html
 
 class MPCClipper:
     def __init__(self, root):
@@ -102,8 +103,8 @@ class MPCClipper:
             return None
 
     def get_time_from_mpc(self, time_var):
-        html = self.get_mpc_data()
-        if not html:
+        html_data = self.get_mpc_data()
+        if not html_data:
             messagebox.showerror("Connection Error", 
                                  "Could not connect to MPC.\n\n"
                                  "Make sure MPC is open and Web Interface is enabled:\n"
@@ -112,12 +113,13 @@ class MPCClipper:
             return
 
         # Extract filepath
-        filepath_match = re.search(r'<p id="filepath">(.*?)</p>', html)
+        filepath_match = re.search(r'<p id="filepath">(.*?)</p>', html_data)
         if filepath_match:
-            self.filepath.set(filepath_match.group(1))
+            raw_path = filepath_match.group(1)
+            self.filepath.set(html.unescape(raw_path))
 
         # Extract position in milliseconds
-        pos_match = re.search(r'<p id="position">(\d+)</p>', html)
+        pos_match = re.search(r'<p id="position">(\d+)</p>', html_data)
         if pos_match:
             ms = int(pos_match.group(1))
             seconds = ms / 1000.0
@@ -129,7 +131,7 @@ class MPCClipper:
             
             formatted_time = f"{h:02d}:{m:02d}:{s:06.3f}"
             time_var.set(formatted_time)
-            self.status_var.set(f"Time updated successfully.")
+            self.status_var.set("Time updated successfully.")
 
     def add_clip_to_list(self):
         start = self.start_time.get()
@@ -175,6 +177,12 @@ class MPCClipper:
         if not self.clips:
             messagebox.showerror("Error", "No clips added to the list. Please add at least one clip.")
             return
+            
+        # Check if all files still exist
+        for infile, _, _ in self.clips:
+            if not os.path.exists(infile):
+                messagebox.showerror("Error", f"File not found:\n{infile}\n\nDid you move or rename the video after adding it to the list?")
+                return
 
         # Use the first clip's file to determine the default save location and extension
         first_infile = self.clips[0][0]
