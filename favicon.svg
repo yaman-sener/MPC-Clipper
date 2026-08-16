@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a" />
+      <stop offset="50%" stop-color="#1e293b" />
+      <stop offset="100%" stop-color="#0f172a" />
+    </linearGradient>
+
+    <linearGradient id="stripGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#06b6d4" />
+      <stop offset="50%" stop-color="#3b82f6" />
+      <stop offset="100%" stop-color="#a855f7" />
+    </linearGradient>
+
+    <linearGradient id="scissorGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f8fafc" />
+      <stop offset="100%" stop-color="#94a3b8" />
+    </linearGradient>
+
+    <filter id="neonGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="8" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <!-- Background Card -->
+  <rect x="32" y="32" width="448" height="448" rx="96" fill="url(#bgGrad)" stroke="#334155" stroke-width="4"/>
+
+  <!-- Curved Glowing Film Strip -->
+  <g filter="url(#neonGlow)">
+    <path d="M 80 340 C 180 380, 240 220, 432 180" fill="none" stroke="url(#stripGrad)" stroke-width="48" stroke-linecap="round"/>
+    <!-- Film Perforations -->
+    <path d="M 80 340 C 180 380, 240 220, 432 180" fill="none" stroke="#0f172a" stroke-width="8" stroke-dasharray="14 12" stroke-linecap="round"/>
+  </g>
+
+  <!-- Scissors Icon -->
+  <g transform="translate(180, 120) rotate(15)" filter="url(#neonGlow)">
+    <!-- Scissor Blade 1 -->
+    <path d="M 30 180 L 160 50 L 180 65 L 60 200 Z" fill="url(#scissorGrad)"/>
+    <!-- Scissor Blade 2 -->
+    <path d="M 30 50 L 160 180 L 180 165 L 60 35 Z" fill="url(#scissorGrad)"/>
+    
+    <!-- Scissor Handles -->
+    <circle cx="25" cy="205" r="30" fill="none" stroke="url(#scissorGrad)" stroke-width="12"/>
+    <circle cx="25" cy="45" r="30" fill="none" stroke="url(#scissorGrad)" stroke-width="12"/>
+    
+    <!-- Pivot Screw -->
+    <circle cx="105" cy="115" r="8" fill="#38bdf8" />
+  </g>
+</svg>

@@ -64,6 +64,8 @@ class MPCClipper:
         self.root.geometry("540x700")
         self.root.resizable(False, False)
 
+        self.setup_icon()
+
         # styling
         style = ttk.Style()
         try:
@@ -86,6 +88,37 @@ class MPCClipper:
         self.res_var = tk.StringVar(value="Auto")        # "Auto", "1080p", "720p", "4K"
         
         self.create_widgets()
+
+    def setup_icon(self):
+        """Program ve Görev Çubuğu (Taskbar) ikonunu ayarlar."""
+        if os.name == 'nt':
+            try:
+                import ctypes
+                myappid = 'mpc.clipper.extractor.1.0'
+                ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+            except Exception:
+                pass
+
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        possible_icons = [
+            os.path.join(base_dir, "icon.ico"),
+            os.path.join(base_dir, "favicon.ico"),
+            os.path.join(base_dir, "icon.png"),
+            os.path.join(base_dir, "assets", "icon.ico"),
+            os.path.join(base_dir, "assets", "icon.png"),
+        ]
+
+        for icon_path in possible_icons:
+            if os.path.exists(icon_path):
+                try:
+                    if icon_path.endswith(".ico"):
+                        self.root.iconbitmap(icon_path)
+                    elif icon_path.endswith(".png"):
+                        self.icon_img = tk.PhotoImage(file=icon_path)
+                        self.root.iconphoto(True, self.icon_img)
+                    break
+                except Exception:
+                    pass
 
     def create_widgets(self):
         # Header
