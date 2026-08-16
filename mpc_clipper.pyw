@@ -9,11 +9,59 @@ import tempfile
 import shutil
 import html
 
+def parse_time_to_seconds(t_str):
+    """Parse HH:MM:SS.mmm or MM:SS.mmm or SS.mmm into total float seconds."""
+    try:
+        parts = t_str.strip().split(':')
+        if len(parts) == 3:
+            return float(parts[0]) * 3600 + float(parts[1]) * 60 + float(parts[2])
+        elif len(parts) == 2:
+            return float(parts[0]) * 60 + float(parts[1])
+        else:
+            return float(parts[0])
+    except Exception:
+        return 0.0
+
+def get_video_info(infile):
+    """Retrieve width, height, fps of video using ffprobe if available."""
+    startupinfo = None
+    if os.name == 'nt':
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        
+    cmd = [
+        "ffprobe", "-v", "error",
+        "-select_streams", "v:0",
+        "-show_entries", "stream=width,height,r_frame_rate",
+        "-of", "csv=p=0",
+        infile
+    ]
+    try:
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, startupinfo=startupinfo)
+        out, err = proc.communicate(timeout=3)
+        if proc.returncode == 0:
+            text = out.decode('utf-8', errors='ignore').strip()
+            if text:
+                parts = text.split(',')
+                if len(parts) >= 3:
+                    w = int(parts[0])
+                    h = int(parts[1])
+                    fps_str = parts[2]
+                    if '/' in fps_str:
+                        num, den = fps_str.split('/')
+                        fps = float(num) / float(den) if float(den) != 0 else 30.0
+                    else:
+                        fps = float(fps_str)
+                    return w, h, fps
+    except Exception:
+        pass
+    return None, None, None
+
 class MPCClipper:
     def __init__(self, root):
         self.root = root
         self.root.title("MPC-HC Multi-Clip Extractor")
-        self.root.geometry("500x550")
+        self.root.geometry("540x700")
         self.root.resizable(False, False)
 
         # styling
@@ -23,67 +71,100 @@ class MPCClipper:
         except:
             pass
 
+        # Custom styling for buttons
+        style.configure("Accent.TButton", font=("Segoe UI", 10, "bold"))
+
         # Variables
         self.filepath = tk.StringVar()
         self.start_time = tk.StringVar(value="00:00:00.000")
         self.end_time = tk.StringVar(value="00:00:00.000")
-        self.clips = [] # List of tuples (start, end)
+        self.clips = [] # List of tuples (infile, start, end)
+        
+        # Render / Sync settings
+        self.render_mode = tk.StringVar(value="reencode") # "reencode" or "copy"
+        self.preset_var = tk.StringVar(value="veryfast")  # "ultrafast", "veryfast", "fast", "medium"
+        self.res_var = tk.StringVar(value="Auto")        # "Auto", "1080p", "720p", "4K"
         
         self.create_widgets()
 
     def create_widgets(self):
         # Header
         header = ttk.Label(self.root, text="MPC-HC Multi-Clip Extractor", font=("Segoe UI", 16, "bold"))
-        header.pack(pady=10)
+        header.pack(pady=8)
 
         # File info
-        file_frame = ttk.LabelFrame(self.root, text="Video File")
-        file_frame.pack(fill="x", padx=15, pady=5)
+        file_frame = ttk.LabelFrame(self.root, text="Video File / Aktif Video")
+        file_frame.pack(fill="x", padx=15, pady=4)
         
         ttk.Entry(file_frame, textvariable=self.filepath, state="readonly", font=("Segoe UI", 9)).pack(fill="x", padx=5, pady=5)
         
         # Time controls
         time_frame = ttk.Frame(self.root)
-        time_frame.pack(fill="x", padx=15, pady=10)
+        time_frame.pack(fill="x", padx=15, pady=5)
         
         # Start time
-        start_frame = ttk.LabelFrame(time_frame, text="Start Time")
+        start_frame = ttk.LabelFrame(time_frame, text="Start Time / Başlangıç")
         start_frame.pack(side="left", fill="x", expand=True, padx=(0, 5))
         ttk.Entry(start_frame, textvariable=self.start_time, justify="center", font=("Segoe UI", 10)).pack(fill="x", padx=5, pady=5)
-        ttk.Button(start_frame, text="Set Start (from MPC)", command=lambda: self.get_time_from_mpc(self.start_time)).pack(pady=5)
+        ttk.Button(start_frame, text="Set Start (from MPC)", command=lambda: self.get_time_from_mpc(self.start_time)).pack(pady=4)
         
         # End time
-        end_frame = ttk.LabelFrame(time_frame, text="End Time")
+        end_frame = ttk.LabelFrame(time_frame, text="End Time / Bitiş")
         end_frame.pack(side="right", fill="x", expand=True, padx=(5, 0))
         ttk.Entry(end_frame, textvariable=self.end_time, justify="center", font=("Segoe UI", 10)).pack(fill="x", padx=5, pady=5)
-        ttk.Button(end_frame, text="Set End (from MPC)", command=lambda: self.get_time_from_mpc(self.end_time)).pack(pady=5)
+        ttk.Button(end_frame, text="Set End (from MPC)", command=lambda: self.get_time_from_mpc(self.end_time)).pack(pady=4)
 
         # Add to list button
-        ttk.Button(self.root, text="Add Clip to List \u2b07\ufe0f", command=self.add_clip_to_list, style="Accent.TButton").pack(pady=5)
+        ttk.Button(self.root, text="Add Clip to List ⬇️", command=self.add_clip_to_list, style="Accent.TButton").pack(pady=4)
 
         # List of clips
-        list_frame = ttk.LabelFrame(self.root, text="Clips to Combine")
-        list_frame.pack(fill="both", expand=True, padx=15, pady=5)
+        list_frame = ttk.LabelFrame(self.root, text="Clips to Combine / Birleştirilecek Klipler")
+        list_frame.pack(fill="both", expand=True, padx=15, pady=4)
 
         # Scrollbar for listbox
         scrollbar = ttk.Scrollbar(list_frame)
         scrollbar.pack(side="right", fill="y")
         
-        self.clip_listbox = tk.Listbox(list_frame, font=("Segoe UI", 10), yscrollcommand=scrollbar.set, selectmode=tk.SINGLE)
+        self.clip_listbox = tk.Listbox(list_frame, font=("Segoe UI", 9), yscrollcommand=scrollbar.set, selectmode=tk.SINGLE)
         self.clip_listbox.pack(side="left", fill="both", expand=True, padx=5, pady=5)
         scrollbar.config(command=self.clip_listbox.yview)
 
         # List controls
         list_ctrl_frame = ttk.Frame(self.root)
-        list_ctrl_frame.pack(fill="x", padx=15, pady=5)
+        list_ctrl_frame.pack(fill="x", padx=15, pady=2)
         ttk.Button(list_ctrl_frame, text="Remove Selected", command=self.remove_selected_clip).pack(side="left", padx=5)
         ttk.Button(list_ctrl_frame, text="Clear All", command=self.clear_all_clips).pack(side="left", padx=5)
 
+        # Render & Sync Settings Frame
+        settings_frame = ttk.LabelFrame(self.root, text="Render & Senkronizasyon Ayarları")
+        settings_frame.pack(fill="x", padx=15, pady=6)
+
+        # Mode Selection
+        mode_frame = ttk.Frame(settings_frame)
+        mode_frame.pack(fill="x", padx=5, pady=3)
+        
+        ttk.Radiobutton(mode_frame, text="Yeniden Kodla (Kesin Senkronize & Donmasız) [Önerilen]", 
+                        variable=self.render_mode, value="reencode").pack(anchor="w")
+        ttk.Radiobutton(mode_frame, text="Hızlı Kopya (Stream Copy - Bazı videolarda kayma/donma yapabilir)", 
+                        variable=self.render_mode, value="copy").pack(anchor="w")
+
+        # Sub-options (Preset & Resolution)
+        opt_frame = ttk.Frame(settings_frame)
+        opt_frame.pack(fill="x", padx=5, pady=4)
+
+        ttk.Label(opt_frame, text="Hız / Preset:", font=("Segoe UI", 9)).grid(row=0, column=0, sticky="w", padx=(0, 5))
+        preset_cb = ttk.Combobox(opt_frame, textvariable=self.preset_var, values=["ultrafast", "veryfast", "fast", "medium"], state="readonly", width=12)
+        preset_cb.grid(row=0, column=1, sticky="w", padx=(0, 15))
+
+        ttk.Label(opt_frame, text="Çözünürlük:", font=("Segoe UI", 9)).grid(row=0, column=2, sticky="w", padx=(0, 5))
+        res_cb = ttk.Combobox(opt_frame, textvariable=self.res_var, values=["Auto", "1080p (1920x1080)", "720p (1280x720)", "4K (3840x2160)"], state="readonly", width=18)
+        res_cb.grid(row=0, column=3, sticky="w")
+
         # Action buttons
         action_frame = ttk.Frame(self.root)
-        action_frame.pack(fill="x", padx=15, pady=10)
+        action_frame.pack(fill="x", padx=15, pady=8)
         
-        self.extract_btn = ttk.Button(action_frame, text="Extract & Combine All \u2702\ufe0f", command=self.extract_clips)
+        self.extract_btn = ttk.Button(action_frame, text="Extract & Combine All ✂️", command=self.extract_clips)
         self.extract_btn.pack(side="right", padx=5, ipadx=10, ipady=3)
         
         ttk.Button(action_frame, text="Help / Setup", command=self.show_help).pack(side="left", padx=5, ipady=3)
@@ -97,9 +178,8 @@ class MPCClipper:
         try:
             req = urllib.request.Request('http://localhost:13579/variables.html')
             with urllib.request.urlopen(req, timeout=1) as response:
-                html = response.read().decode('utf-8')
-                return html
-        except Exception as e:
+                return response.read().decode('utf-8')
+        except Exception:
             return None
 
     def get_time_from_mpc(self, time_var):
@@ -146,7 +226,10 @@ class MPCClipper:
             messagebox.showerror("Error", "Start and End times cannot be the same!")
             return
             
-        if start > end:
+        start_sec = parse_time_to_seconds(start)
+        end_sec = parse_time_to_seconds(end)
+        
+        if start_sec > end_sec:
             start, end = end, start
             
         self.clips.append((infile, start, end))
@@ -184,16 +267,16 @@ class MPCClipper:
                 messagebox.showerror("Error", f"File not found:\n{infile}\n\nDid you move or rename the video after adding it to the list?")
                 return
 
-        # Use the first clip's file to determine the default save location and extension
+        # Use the first clip's file to determine default save location and extension
         first_infile = self.clips[0][0]
-        base, ext = os.path.splitext(first_infile)
-        default_out = f"{base}_combined{ext}"
+        base, _ = os.path.splitext(first_infile)
+        default_out = f"{base}_combined.mp4"
         
         outfile = filedialog.asksaveasfilename(
-            defaultextension=ext,
+            defaultextension=".mp4",
             initialfile=os.path.basename(default_out),
             title="Save Combined Clip As",
-            filetypes=[("Video File", f"*{ext}"), ("All Files", "*.*")]
+            filetypes=[("MP4 Video File", "*.mp4"), ("All Files", "*.*")]
         )
         
         if not outfile:
@@ -201,7 +284,7 @@ class MPCClipper:
 
         self.extract_btn.config(state="disabled")
         
-        # Run ffmpeg in a thread so UI doesn't freeze
+        # Run ffmpeg in a background thread so UI doesn't freeze
         threading.Thread(target=self.run_ffmpeg_multi, args=(self.clips, outfile), daemon=True).start()
 
     def run_ffmpeg_multi(self, clips, outfile):
@@ -212,15 +295,67 @@ class MPCClipper:
                 startupinfo = subprocess.STARTUPINFO()
                 startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
 
+            mode = self.render_mode.get()
+            preset = self.preset_var.get()
+            res_choice = self.res_var.get()
+
+            # Parse target dimensions if specified
+            target_w, target_h = None, None
+            if "1080p" in res_choice:
+                target_w, target_h = 1920, 1080
+            elif "720p" in res_choice:
+                target_w, target_h = 1280, 720
+            elif "4K" in res_choice:
+                target_w, target_h = 3840, 2160
+            elif res_choice == "Auto" and len(clips) > 0:
+                # Check if multiple unique files are present
+                infiles = set(c[0] for c in clips)
+                if len(infiles) > 1:
+                    w0, h0, _ = get_video_info(clips[0][0])
+                    if w0 and h0:
+                        target_w, target_h = w0, h0
+
             if len(clips) == 1:
-                self.root.after(0, lambda: self.status_var.set("Extracting single clip..."))
+                self.root.after(0, lambda: self.status_var.set("Klip işleniyor / Processing single clip..."))
                 infile, start, end = clips[0]
-                cmd = ["ffmpeg", "-y", "-ss", start, "-to", end, "-i", infile, "-c", "copy", outfile]
+                
+                start_sec = parse_time_to_seconds(start)
+                end_sec = parse_time_to_seconds(end)
+                duration = end_sec - start_sec
+                if duration <= 0:
+                    raise Exception(f"Geçersiz zaman aralığı: Başlangıç ({start}) Bitişten ({end}) büyük veya eşit olamaz.")
+
+                if mode == "copy":
+                    cmd = ["ffmpeg", "-y", "-ss", start, "-to", end, "-i", infile, "-c", "copy", outfile]
+                else:
+                    cmd = [
+                        "ffmpeg", "-y",
+                        "-ss", f"{start_sec:.3f}",
+                        "-i", infile,
+                        "-t", f"{duration:.3f}",
+                        "-c:v", "libx264",
+                        "-preset", preset,
+                        "-crf", "20",
+                        "-pix_fmt", "yuv420p",
+                        "-r", "30",
+                        "-c:a", "aac",
+                        "-b:a", "192k",
+                        "-ar", "48000",
+                        "-ac", "2",
+                        "-af", "aresample=async=1",
+                        "-avoid_negative_ts", "make_zero"
+                    ]
+                    if target_w and target_h:
+                        vf = f"scale={target_w}:{target_h}:force_original_aspect_ratio=decrease,pad={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2,setsar=1"
+                        cmd.extend(["-vf", vf])
+                    cmd.append(outfile)
+
                 process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, startupinfo=startupinfo)
                 stdout, stderr = process.communicate()
                 
                 if process.returncode != 0:
-                    raise Exception(f"FFmpeg error:\n{stderr.decode('utf-8', errors='ignore')}")
+                    raise Exception(f"FFmpeg Hatası:\n{stderr.decode('utf-8', errors='ignore')}")
+
             else:
                 # Multiple clips: extract each to temp, then concat
                 temp_dir = tempfile.mkdtemp(prefix="mpc_clipper_")
@@ -229,25 +364,53 @@ class MPCClipper:
                 # Step 1: Extract individual clips
                 for i, (infile, start, end) in enumerate(clips):
                     _, ext = os.path.splitext(infile)
-                    self.root.after(0, lambda i=i: self.status_var.set(f"Extracting clip {i+1} of {len(clips)}..."))
-                    temp_file = os.path.join(temp_dir, f"part_{i}{ext}")
+                    self.root.after(0, lambda i=i: self.status_var.set(f"Klip {i+1}/{len(clips)} kesiliyor ve işleniyor..."))
+                    temp_file = os.path.join(temp_dir, f"part_{i}.mp4" if mode == "reencode" else f"part_{i}{ext}")
                     temp_files.append(temp_file)
-                    
-                    cmd = ["ffmpeg", "-y", "-ss", start, "-to", end, "-i", infile, "-c", "copy", temp_file]
+
+                    start_sec = parse_time_to_seconds(start)
+                    end_sec = parse_time_to_seconds(end)
+                    duration = end_sec - start_sec
+                    if duration <= 0:
+                        raise Exception(f"Klip {i+1} geçersiz zaman aralığı: {start} -> {end}")
+
+                    if mode == "copy":
+                        cmd = ["ffmpeg", "-y", "-ss", start, "-to", end, "-i", infile, "-c", "copy", temp_file]
+                    else:
+                        cmd = [
+                            "ffmpeg", "-y",
+                            "-ss", f"{start_sec:.3f}",
+                            "-i", infile,
+                            "-t", f"{duration:.3f}",
+                            "-c:v", "libx264",
+                            "-preset", preset,
+                            "-crf", "20",
+                            "-pix_fmt", "yuv420p",
+                            "-r", "30",
+                            "-c:a", "aac",
+                            "-b:a", "192k",
+                            "-ar", "48000",
+                            "-ac", "2",
+                            "-af", "aresample=async=1",
+                            "-avoid_negative_ts", "make_zero"
+                        ]
+                        if target_w and target_h:
+                            vf = f"scale={target_w}:{target_h}:force_original_aspect_ratio=decrease,pad={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2,setsar=1"
+                            cmd.extend(["-vf", vf])
+                        cmd.append(temp_file)
+
                     process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, startupinfo=startupinfo)
                     stdout, stderr = process.communicate()
                     
                     if process.returncode != 0:
-                        raise Exception(f"Failed extracting clip {i+1}:\n{stderr.decode('utf-8', errors='ignore')}")
+                        raise Exception(f"Klip {i+1} işlenirken hata oluştu:\n{stderr.decode('utf-8', errors='ignore')}")
 
                 # Step 2: Create concat.txt
-                self.root.after(0, lambda: self.status_var.set("Combining clips..."))
+                self.root.after(0, lambda: self.status_var.set("Klipler birleştiriliyor..."))
                 concat_list_path = os.path.join(temp_dir, "concat.txt")
                 with open(concat_list_path, "w", encoding="utf-8") as f:
                     for tfile in temp_files:
-                        # ffmpeg concat requires single quotes and escaped single quotes if any
-                        # Using relative paths is safer. But absolute path with safe formatting:
-                        tfile_safe = tfile.replace("'", "'\\''")
+                        tfile_safe = os.path.abspath(tfile).replace("\\", "/").replace("'", "'\\''")
                         f.write(f"file '{tfile_safe}'\n")
 
                 # Step 3: Concat
@@ -256,16 +419,15 @@ class MPCClipper:
                 stdout, stderr = process.communicate()
                 
                 if process.returncode != 0:
-                    raise Exception(f"Failed combining clips:\n{stderr.decode('utf-8', errors='ignore')}")
+                    raise Exception(f"Klipler birleştirilirken hata oluştu:\n{stderr.decode('utf-8', errors='ignore')}")
 
-            self.root.after(0, lambda: self.status_var.set("Extraction & combination complete!"))
-            self.root.after(0, lambda: messagebox.showinfo("Success", f"Video saved successfully:\n{outfile}"))
+            self.root.after(0, lambda: self.status_var.set("İşlem tamamlandı! Video kaydedildi."))
+            self.root.after(0, lambda: messagebox.showinfo("Başarılı / Success", f"Video başarıyla birleştirildi ve kaydedildi:\n{outfile}"))
                 
         except Exception as e:
-            self.root.after(0, lambda: self.status_var.set("Error during extraction!"))
-            self.root.after(0, lambda e=e: messagebox.showerror("Error", str(e)))
+            self.root.after(0, lambda: self.status_var.set("Hata oluştu!"))
+            self.root.after(0, lambda e=e: messagebox.showerror("Hata / Error", str(e)))
         finally:
-            # Cleanup temp directory
             if temp_dir and os.path.exists(temp_dir):
                 try:
                     shutil.rmtree(temp_dir)
@@ -280,12 +442,14 @@ class MPCClipper:
             "2. Find the start of your first clip and click 'Set Start'.\n"
             "3. Find the end of your first clip and click 'Set End'.\n"
             "4. Click 'Add Clip to List'.\n"
-            "5. Repeat steps 2-4 to add as many parts as you want.\n"
-            "6. Click 'Extract & Combine All' to merge them into a single file.\n\n"
-            "Note: Since this process doesn't re-encode the video (to be fast), "
-            "make sure all clips are from the SAME original video."
+            "5. Repeat steps 2-4 to add as many parts as you want (even from different video files!).\n"
+            "6. Select 'Yeniden Kodla (Kesin Senkronize)' mode to prevent audio desync and video freezing.\n"
+            "7. Click 'Extract & Combine All' to merge them into a single file.\n\n"
+            "Modlar:\n"
+            "- Yeniden Kodla (Önerilen): Ses kaymasını ve video donmasını tamamen engeller.\n"
+            "- Hızlı Kopya (Stream Copy): Çok hızlıdır ancak keyframe sınırları nedeniyle ses/görüntü kayması yapabilir."
         )
-        messagebox.showinfo("Setup & Help", help_text)
+        messagebox.showinfo("Setup & Help / Yardım", help_text)
 
 if __name__ == "__main__":
     root = tk.Tk()
